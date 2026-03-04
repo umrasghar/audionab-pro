@@ -1,0 +1,27 @@
+# Build
+build/
+out/
+dist/
+*.exe
+*.pdb
+*.obj
+*.lib
+*.exp
+*.ilk
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+CMakeSettings.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary
+*.tmp
+*.log
