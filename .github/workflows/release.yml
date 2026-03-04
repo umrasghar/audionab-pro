@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: CMake Configure
+        run: cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: CMake Build
+        run: cmake --build build --config Release
+
+      - name: Download FFmpeg
+        shell: bash
+        run: |
+          FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          echo "Downloading FFmpeg from $FFMPEG_URL"
+          curl -L -o ffmpeg-release.zip "$FFMPEG_URL"
+          7z x ffmpeg-release.zip -offmpeg-extract
+          mkdir -p ffmpeg
+          cp ffmpeg-extract/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe ffmpeg/ffmpeg.exe
+          echo "FFmpeg extracted:"
+          ls -la ffmpeg/
+
+      - name: Build Inno Setup Installer
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            build/AudioNabPro.exe
+            dist/AudioNabPro-Setup-2.5.0.exe

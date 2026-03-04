@@ -82,16 +82,19 @@ ConvertResult Convert(const std::wstring& inputPath,
 namespace Converter {
 
 static std::wstring FindFFmpeg() {
-    // Check PATH
-    wchar_t buf[MAX_PATH];
-    if (SearchPathW(nullptr, L"ffmpeg.exe", nullptr, MAX_PATH, buf, nullptr))
-        return buf;
     // Check next to our exe
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring dir = Helpers::GetDirectory(exePath);
     std::wstring local = dir + L"\\ffmpeg.exe";
     if (Helpers::FileExists(local)) return local;
+    // Check ffmpeg/ subdirectory
+    std::wstring subdir = dir + L"\\ffmpeg\\ffmpeg.exe";
+    if (Helpers::FileExists(subdir)) return subdir;
+    // Check PATH
+    wchar_t buf[MAX_PATH];
+    if (SearchPathW(nullptr, L"ffmpeg.exe", nullptr, MAX_PATH, buf, nullptr))
+        return buf;
     return {};
 }
 

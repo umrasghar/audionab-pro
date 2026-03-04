@@ -6,6 +6,8 @@
 #include "config.h"
 #include "database.h"
 #include "converter.h"
+#include "tray.h"
+#include "watcher.h"
 #include "ui/renderer.h"
 #include "ui/controls.h"
 #include "ui/dropdown.h"
@@ -31,6 +33,10 @@ public:
     void CancelConversion();
     void RefreshHistory();
     void ShowToast(Toast::Type type, const std::wstring& msg);
+
+    // Tray / Watch
+    void StartWatcher();
+    void StopWatcher();
 
     // State
     bool IsConverting() const { return converting_; }
@@ -76,6 +82,7 @@ private:
     Button      btnNab_;
     Button      btnCancel_;
     Button      btnOpenFolder_;
+    Button      btnSettings_;
     Dropdown    ddFormat_;
     Dropdown    ddBitrate_;
     StatCard    cardTotal_;
@@ -100,6 +107,8 @@ private:
     Renderer    renderer_;
     Database    db_;
     AppConfig   config_;
+    TrayIcon    tray_;
+    FolderWatcher watcher_;
 
     bool        converting_ = false;
     float       convertProgress_ = 0.0f;

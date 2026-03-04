@@ -1,6 +1,8 @@
 #include "app.h"
 #include "constants.h"
 #include "helpers.h"
+#include "context_menu.h"
+#include "transcriber.h"
 #include "ui/theme.h"
 #include <commdlg.h>
 #include <shellapi.h>
@@ -52,6 +54,17 @@ bool App::Init(HINSTANCE hInst, int nCmdShow) {
 
     // Initialize controls
     InitializeControls();
+
+    // Init tray icon
+    tray_.Init(hwnd_, hInst_);
+    if (config_.minimizeToTray || config_.closeToTray) {
+        tray_.Show();
+    }
+
+    // Start watch folder if enabled
+    if (config_.watchEnabled && !config_.watchDir.empty()) {
+        StartWatcher();
+    }
 
     // Load history
     RefreshHistory();
@@ -134,6 +147,14 @@ void App::InitializeControls() {
     statusDot_.color = Theme::Success;
     statusDot_.radius = Theme::StatusDotRadius;
 
+    // Settings button
+    btnSettings_.text = L"Settings";
+    btnSettings_.bgColor    = Theme::BgButton;
+    btnSettings_.hoverColor = Theme::BgBtnHover;
+    btnSettings_.pressColor = Theme::BgCardAlt;
+    btnSettings_.textColor  = Theme::TextMuted;
+    btnSettings_.cornerRadius = Theme::CornerSmall;
+
     // Toast
     toast_.active = false;
 }
@@ -149,9 +170,25 @@ int App::Run() {
 
 void App::Shutdown() {
     CancelConversion();
+    watcher_.Stop();
+    tray_.Destroy();
     Config::Save(config_);
     db_.Close();
     if (cancelEvent_) { CloseHandle(cancelEvent_); cancelEvent_ = nullptr; }
+}
+
+void App::StartWatcher() {
+    if (config_.watchDir.empty()) return;
+    watcher_.Start(config_.watchDir, [this](const std::wstring& filePath) {
+        // Post to UI thread for conversion
+        auto* path = new std::wstring(filePath);
+        PostMessageW(hwnd_, AppDef::WM_APP_WATCH_FILE,
+                     reinterpret_cast<WPARAM>(path), 0);
+    });
+}
+
+void App::StopWatcher() {
+    watcher_.Stop();
 }
 
 // --- Window creation ---
@@ -309,6 +346,10 @@ LRESULT App::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         int total = static_cast<int>(lParam);
         if (ok == total && total > 0) {
             ShowToast(Toast::Type::Success, std::to_wstring(ok) + L" file(s) converted successfully!");
+            if (config_.showNotifications && tray_.IsVisible()) {
+                tray_.ShowBalloon(L"Conversion Complete",
+                    (std::to_wstring(ok) + L" file(s) converted").c_str());
+            }
         } else if (ok > 0) {
             ShowToast(Toast::Type::Warning, std::to_wstring(ok) + L"/" + std::to_wstring(total) + L" files converted.");
         } else if (total > 0) {
@@ -318,17 +359,83 @@ LRESULT App::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
-    case WM_DESTROY: {
-        // Save window position
-        RECT rc;
-        GetWindowRect(hwnd_, &rc);
-        config_.windowX = rc.left;
-        config_.windowY = rc.top;
-        config_.windowW = rc.right - rc.left;
-        config_.windowH = rc.bottom - rc.top;
-        PostQuitMessage(0);
+    case AppDef::WM_APP_WATCH_FILE: {
+        // File detected by watcher — convert it
+        auto* path = reinterpret_cast<std::wstring*>(wParam);
+        if (path) {
+            ConvertFile(*path);
+            delete path;
+        }
         return 0;
     }
+
+    case TrayIcon::WM_TRAYICON:
+        tray_.HandleMessage(wParam, lParam);
+        return 0;
+
+    case WM_COMMAND:
+        // Handle tray menu commands
+        switch (LOWORD(wParam)) {
+        case TrayIcon::IDM_SHOW:
+            ShowWindow(hwnd_, SW_SHOW);
+            ShowWindow(hwnd_, SW_RESTORE);
+            SetForegroundWindow(hwnd_);
+            break;
+        case TrayIcon::IDM_CONVERT:
+            OpenFileDialog();
+            break;
+        case TrayIcon::IDM_EXIT:
+            tray_.Destroy();
+            DestroyWindow(hwnd_);
+            break;
+        }
+        return 0;
+
+    case WM_COPYDATA: {
+        // Receive file path from second instance
+        auto* cds = reinterpret_cast<COPYDATASTRUCT*>(lParam);
+        if (cds && cds->dwData == 1 && cds->lpData) {
+            std::wstring path(static_cast<const wchar_t*>(cds->lpData));
+            if (Helpers::FileExists(path)) {
+                ConvertFile(path);
+            }
+        }
+        // Restore window
+        ShowWindow(hwnd_, SW_SHOW);
+        ShowWindow(hwnd_, SW_RESTORE);
+        SetForegroundWindow(hwnd_);
+        return 0;
+    }
+
+    case WM_CLOSE:
+        // Minimize to tray instead of closing if configured
+        if (config_.closeToTray && tray_.IsVisible()) {
+            ShowWindow(hwnd_, SW_HIDE);
+            return 0;
+        }
+        // Save window position before destroy
+        {
+            RECT rc;
+            GetWindowRect(hwnd_, &rc);
+            config_.windowX = rc.left;
+            config_.windowY = rc.top;
+            config_.windowW = rc.right - rc.left;
+            config_.windowH = rc.bottom - rc.top;
+        }
+        DestroyWindow(hwnd_);
+        return 0;
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+
+    case WM_SYSCOMMAND:
+        // Minimize to tray
+        if (wParam == SC_MINIMIZE && config_.minimizeToTray && tray_.IsVisible()) {
+            ShowWindow(hwnd_, SW_HIDE);
+            return 0;
+        }
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     default:
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
@@ -396,6 +503,7 @@ void App::OnPaint() {
     ddFormat_.Draw(renderer_);
     ddBitrate_.Draw(renderer_);
     btnOpenFolder_.Draw(renderer_);
+    btnSettings_.Draw(renderer_);
     btnCancel_.Draw(renderer_);
 
     // Stat cards
@@ -522,6 +630,9 @@ void App::Layout(float w, float h) {
     float oX = ddX + 2 * (ddW + 8);
     btnOpenFolder_.SetBounds(oX, btnY + 4, 110, Theme::ButtonHeight - 8);
 
+    // Settings button (right of Open Output)
+    btnSettings_.SetBounds(oX + 118, btnY + 4, 80, Theme::ButtonHeight - 8);
+
     // Cancel button (right side, only during conversion)
     btnCancel_.SetBounds(w - px - 90, btnY + 4, 80, Theme::ButtonHeight - 8);
 
@@ -558,6 +669,7 @@ void App::OnMouseMove(float x, float y) {
     updateState(btnNab_);
     updateState(btnCancel_);
     updateState(btnOpenFolder_);
+    updateState(btnSettings_);
     updateState(ddFormat_);
     updateState(ddBitrate_);
 
@@ -589,6 +701,7 @@ void App::OnMouseDown(float x, float y) {
     needRepaint |= press(btnNab_);
     needRepaint |= press(btnCancel_);
     needRepaint |= press(btnOpenFolder_);
+    needRepaint |= press(btnSettings_);
 
     if (needRepaint) InvalidateRect(hwnd_, nullptr, FALSE);
 }
@@ -608,11 +721,16 @@ void App::OnMouseUp(float x, float y) {
             ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
     }
+    if (btnSettings_.state == ControlState::Pressed && btnSettings_.HitTest(x, y)) {
+        // TODO: Open settings dialog
+        ShowToast(Toast::Type::Info, L"Settings panel coming soon.");
+    }
 
     // Reset all states
     btnNab_.state = btnNab_.HitTest(x, y) ? ControlState::Hovered : ControlState::Normal;
     btnCancel_.state = btnCancel_.HitTest(x, y) ? ControlState::Hovered : ControlState::Normal;
     btnOpenFolder_.state = btnOpenFolder_.HitTest(x, y) ? ControlState::Hovered : ControlState::Normal;
+    btnSettings_.state = btnSettings_.HitTest(x, y) ? ControlState::Hovered : ControlState::Normal;
 
     InvalidateRect(hwnd_, nullptr, FALSE);
 }

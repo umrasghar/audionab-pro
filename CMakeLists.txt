@@ -26,6 +26,10 @@ set(APP_SOURCES
     src/config.cpp
     src/database.cpp
     src/helpers.cpp
+    src/tray.cpp
+    src/context_menu.cpp
+    src/watcher.cpp
+    src/transcriber.cpp
 )
 
 set(UI_SOURCES

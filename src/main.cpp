@@ -5,6 +5,7 @@
 #include "constants.h"
 #include "helpers.h"
 #include "converter.h"
+#include "context_menu.h"
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
@@ -69,14 +70,22 @@ static bool HandleCLI(int argc, wchar_t** argv) {
     }
 
     if (cmd == L"--install") {
-        // TODO: Install context menu
-        wprintf(L"Context menu installed.\n");
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        if (ContextMenu::Install(exePath)) {
+            wprintf(L"Context menu installed successfully.\n");
+        } else {
+            fwprintf(stderr, L"Failed to install context menu.\n");
+        }
         return true;
     }
 
     if (cmd == L"--uninstall") {
-        // TODO: Uninstall context menu
-        wprintf(L"Context menu uninstalled.\n");
+        if (ContextMenu::Uninstall()) {
+            wprintf(L"Context menu uninstalled successfully.\n");
+        } else {
+            fwprintf(stderr, L"Failed to uninstall context menu.\n");
+        }
         return true;
     }
 
