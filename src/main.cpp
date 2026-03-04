@@ -21,7 +21,7 @@ static bool CheckSingleInstance() {
     g_mutex = CreateMutexW(nullptr, TRUE, L"AudioNabPro_SingleInstance_Mutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         // Find existing window and bring to front
-        HWND existing = FindWindowW(App::WINDOW_CLASS, nullptr);
+        HWND existing = FindWindowW(AppDef::WINDOW_CLASS, nullptr);
         if (existing) {
             if (IsIconic(existing)) ShowWindow(existing, SW_RESTORE);
             SetForegroundWindow(existing);
@@ -81,12 +81,12 @@ static bool HandleCLI(int argc, wchar_t** argv) {
     }
 
     if (cmd == L"--version") {
-        wprintf(L"%s v%s\n", App::NAME, App::VERSION);
+        wprintf(L"%s v%s\n", AppDef::NAME, AppDef::VERSION);
         return true;
     }
 
     if (cmd == L"--help") {
-        wprintf(L"%s v%s - %s\n\n", App::NAME, App::VERSION, App::TAGLINE);
+        wprintf(L"%s v%s - %s\n\n", AppDef::NAME, AppDef::VERSION, AppDef::TAGLINE);
         wprintf(L"Usage:\n");
         wprintf(L"  AudioNabPro.exe                     Launch GUI\n");
         wprintf(L"  AudioNabPro.exe --convert <files>    Convert files to MP3\n");
@@ -104,7 +104,18 @@ static bool HandleCLI(int argc, wchar_t** argv) {
     return false;
 }
 
+static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep) {
+    wchar_t buf[256];
+    swprintf(buf, 256, L"Crash! Exception code: 0x%08X\nAddress: 0x%p",
+             ep->ExceptionRecord->ExceptionCode,
+             ep->ExceptionRecord->ExceptionAddress);
+    MessageBoxW(nullptr, buf, L"AudioNab Crash", MB_ICONERROR);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdShow) {
+    SetUnhandledExceptionFilter(CrashHandler);
+
     // Initialize COM
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
@@ -127,7 +138,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
     if (!CheckSingleInstance()) {
         // Forward file to existing instance via WM_COPYDATA if file arg provided
         if (argc >= 2 && Helpers::FileExists(argv[1])) {
-            HWND existing = FindWindowW(App::WINDOW_CLASS, nullptr);
+            HWND existing = FindWindowW(AppDef::WINDOW_CLASS, nullptr);
             if (existing) {
                 COPYDATASTRUCT cds = {};
                 cds.dwData = 1; // File path

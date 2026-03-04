@@ -14,7 +14,7 @@ bool Database::Open() {
     InitializeCriticalSection(&cs_);
     csInit_ = true;
 
-    std::wstring dbPath = Helpers::GetAppDataDir() + L"\\" + App::DB_NAME;
+    std::wstring dbPath = Helpers::GetAppDataDir() + L"\\" + AppDef::DB_NAME;
     std::string dbPathUtf8 = Helpers::WideToUtf8(dbPath);
 
     int rc = sqlite3_open(dbPathUtf8.c_str(), &db_);

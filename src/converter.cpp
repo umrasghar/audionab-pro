@@ -335,9 +335,9 @@ const wchar_t* FormatName(AudioFormat fmt) {
 }
 
 bool IsSupportedInput(const std::wstring& ext) {
-    for (auto e : App::VIDEO_EXTS)
+    for (auto e : AppDef::VIDEO_EXTS)
         if (ext == e) return true;
-    for (auto e : App::AUDIO_EXTS)
+    for (auto e : AppDef::AUDIO_EXTS)
         if (ext == e) return true;
     return ext == L".mp3"; // MP3 is also a valid input
 }

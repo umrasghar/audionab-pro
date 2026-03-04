@@ -5,20 +5,36 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 
-# --- Release optimizations: static CRT, full optimization ---
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
+# --- Static CRT ---
 if(MSVC)
+    # Use static runtime (/MT for Release, /MTd for Debug)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     add_compile_options(/W3 /utf-8)
-    # Release flags
-    add_compile_options($<$<CONFIG:Release>:/O2 /GL /GS- /Oi>)
-    add_link_options($<$<CONFIG:Release>:/LTCG /OPT:REF /OPT:ICF>)
+
+    # Release optimizations (applied directly for single-config generators)
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        add_compile_options(/O2 /GL /GS- /Oi)
+        add_link_options(/LTCG /OPT:REF /OPT:ICF)
+    endif()
 endif()
 
-# --- Sources ---
-file(GLOB APP_SOURCES src/*.cpp src/*.c)
-file(GLOB UI_SOURCES src/ui/*.cpp)
+# --- Sources (explicit lists to avoid pulling in unwanted files like shell.c) ---
+set(APP_SOURCES
+    src/main.cpp
+    src/app.cpp
+    src/converter.cpp
+    src/config.cpp
+    src/database.cpp
+    src/helpers.cpp
+)
 
+set(UI_SOURCES
+    src/ui/renderer.cpp
+    src/ui/controls.cpp
+)
+
+# NOTE: Do NOT add third_party/sqlite3/shell.c — it contains its own main()
+# which conflicts with our WinMain entry point.
 set(THIRD_PARTY_SOURCES
     third_party/sqlite3/sqlite3.c
     third_party/cjson/cJSON.c
@@ -32,12 +48,16 @@ add_executable(AudioNabPro WIN32
     audionab.rc
 )
 
+# Disable CMake's auto-generated manifest — we embed ours via .rc file
+set_target_properties(AudioNabPro PROPERTIES LINK_FLAGS "/MANIFEST:NO")
+
 # --- Compile definitions ---
 target_compile_definitions(AudioNabPro PRIVATE
     UNICODE
     _UNICODE
     WIN32_LEAN_AND_MEAN
     NOMINMAX
+    _CRT_SECURE_NO_WARNINGS
     # SQLite optimizations
     SQLITE_THREADSAFE=1
     SQLITE_OMIT_LOAD_EXTENSION

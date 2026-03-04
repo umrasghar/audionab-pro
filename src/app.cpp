@@ -24,7 +24,7 @@ bool App::Init(HINSTANCE hInst, int nCmdShow) {
 
     // Open database
     if (!db_.Open()) {
-        MessageBoxW(nullptr, L"Failed to open database.", App::NAME, MB_ICONERROR);
+        MessageBoxW(nullptr, L"Failed to open database.", AppDef::NAME, MB_ICONERROR);
         return false;
     }
 
@@ -35,12 +35,18 @@ bool App::Init(HINSTANCE hInst, int nCmdShow) {
     cancelEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 
     // Create window
-    if (!RegisterWindowClass(hInst)) return false;
-    if (!CreateAppWindow(hInst, nCmdShow)) return false;
+    if (!RegisterWindowClass(hInst)) {
+        MessageBoxW(nullptr, L"Failed to register window class.", AppDef::NAME, MB_ICONERROR);
+        return false;
+    }
+    if (!CreateAppWindow(hInst, nCmdShow)) {
+        MessageBoxW(nullptr, L"Failed to create window.", AppDef::NAME, MB_ICONERROR);
+        return false;
+    }
 
     // Init renderer
     if (!renderer_.Init(hwnd_)) {
-        MessageBoxW(nullptr, L"Failed to initialize Direct2D.", App::NAME, MB_ICONERROR);
+        MessageBoxW(nullptr, L"Failed to initialize Direct2D.", AppDef::NAME, MB_ICONERROR);
         return false;
     }
 
@@ -130,20 +136,20 @@ bool App::RegisterWindowClass(HINSTANCE hInst) {
     wc.hInstance      = hInst;
     wc.hIcon          = LoadIconW(hInst, MAKEINTRESOURCEW(1));
     wc.hCursor        = LoadCursorW(nullptr, IDC_ARROW);
-    wc.lpszClassName  = ::App::WINDOW_CLASS;
+    wc.lpszClassName  = AppDef::WINDOW_CLASS;
     return RegisterClassExW(&wc) != 0;
 }
 
 bool App::CreateAppWindow(HINSTANCE hInst, int nCmdShow) {
     int x = config_.windowX >= 0 ? config_.windowX : CW_USEDEFAULT;
     int y = config_.windowY >= 0 ? config_.windowY : CW_USEDEFAULT;
-    int w = config_.windowW > 0  ? config_.windowW : ::App::INITIAL_WIDTH;
-    int h = config_.windowH > 0  ? config_.windowH : ::App::INITIAL_HEIGHT;
+    int w = config_.windowW > 0  ? config_.windowW : AppDef::INITIAL_WIDTH;
+    int h = config_.windowH > 0  ? config_.windowH : AppDef::INITIAL_HEIGHT;
 
     hwnd_ = CreateWindowExW(
         WS_EX_ACCEPTFILES,
-        ::App::WINDOW_CLASS,
-        ::App::NAME,
+        AppDef::WINDOW_CLASS,
+        AppDef::NAME,
         WS_OVERLAPPEDWINDOW,
         x, y, w, h,
         nullptr, nullptr, hInst, this);
@@ -167,11 +173,12 @@ LRESULT CALLBACK App::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     if (msg == WM_NCCREATE) {
         auto cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
         app = static_cast<App*>(cs->lpCreateParams);
+        app->hwnd_ = hwnd; // Store hwnd early
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(app));
-    } else {
-        app = reinterpret_cast<App*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
 
+    app = reinterpret_cast<App*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (app) {
         return app->HandleMessage(msg, wParam, lParam);
     }
@@ -191,8 +198,8 @@ LRESULT App::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_GETMINMAXINFO: {
         auto mmi = reinterpret_cast<MINMAXINFO*>(lParam);
-        mmi->ptMinTrackSize.x = ::App::MIN_WIDTH;
-        mmi->ptMinTrackSize.y = ::App::MIN_HEIGHT;
+        mmi->ptMinTrackSize.x = AppDef::MIN_WIDTH;
+        mmi->ptMinTrackSize.y = AppDef::MIN_HEIGHT;
         return 0;
     }
 
@@ -241,22 +248,22 @@ LRESULT App::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_TIMER:
-        if (wParam == ::App::TIMER_TOAST) {
+        if (wParam == AppDef::TIMER_TOAST) {
             toast_.Update(1.0f / 60.0f);
-            if (!toast_.active) KillTimer(hwnd_, ::App::TIMER_TOAST);
+            if (!toast_.active) KillTimer(hwnd_, AppDef::TIMER_TOAST);
             InvalidateRect(hwnd_, nullptr, FALSE);
-        } else if (wParam == ::App::TIMER_SCROLL) {
+        } else if (wParam == AppDef::TIMER_SCROLL) {
             // Smooth scroll interpolation
             scrollY_ += (scrollTarget_ - scrollY_) * 0.2f;
             if (fabsf(scrollTarget_ - scrollY_) < 0.5f) {
                 scrollY_ = scrollTarget_;
-                KillTimer(hwnd_, ::App::TIMER_SCROLL);
+                KillTimer(hwnd_, AppDef::TIMER_SCROLL);
             }
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
         return 0;
 
-    case ::App::WM_APP_PROGRESS: {
+    case AppDef::WM_APP_PROGRESS: {
         float p = *reinterpret_cast<float*>(&wParam);
         convertProgress_ = p;
         progressBar_.progress = p;
@@ -264,7 +271,7 @@ LRESULT App::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
-    case ::App::WM_APP_DONE: {
+    case AppDef::WM_APP_DONE: {
         converting_ = false;
         progressBar_.visible = false;
         convertThread_ = nullptr;
@@ -296,6 +303,12 @@ void App::OnPaint() {
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
 
+    // Guard: renderer not ready yet (WM_PAINT can fire during CreateWindowEx)
+    if (!renderer_.Target()) {
+        EndPaint(hwnd_, &ps);
+        return;
+    }
+
     renderer_.BeginDraw();
     renderer_.Clear(Theme::BgWindow);
 
@@ -313,16 +326,16 @@ void App::OnPaint() {
 
     // Title
     D2D1_RECT_F titleRect = { px, py, w - px, py + 36 };
-    renderer_.DrawText(::App::NAME, titleRect, Theme::TextPrimary, renderer_.fontTitle,
+    renderer_.DrawText(AppDef::NAME, titleRect, Theme::TextPrimary, renderer_.fontTitle,
                        DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
     // Tagline
     D2D1_RECT_F tagRect = { px, py + 36, w - px, py + 52 };
-    renderer_.DrawText(::App::TAGLINE, tagRect, Theme::TextMuted, renderer_.fontSmall,
+    renderer_.DrawText(AppDef::TAGLINE, tagRect, Theme::TextMuted, renderer_.fontSmall,
                        DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
     // Version badge
-    std::wstring verText = std::wstring(L"v") + ::App::VERSION;
+    std::wstring verText = std::wstring(L"v") + AppDef::VERSION;
     D2D1_SIZE_F verSize = renderer_.MeasureText(verText, renderer_.fontBadge);
     D2D1_RECT_F verBg = { w - px - verSize.width - 16, py + 4,
                            w - px, py + 4 + verSize.height + 8 };
@@ -556,8 +569,8 @@ void App::OpenFileDialog() {
     // Build filter string
     std::wstring filter = L"Media Files\0";
     std::wstring exts;
-    for (auto e : ::App::VIDEO_EXTS) { exts += L"*"; exts += e; exts += L";"; }
-    for (auto e : ::App::AUDIO_EXTS) { exts += L"*"; exts += e; exts += L";"; }
+    for (auto e : AppDef::VIDEO_EXTS) { exts += L"*"; exts += e; exts += L";"; }
+    for (auto e : AppDef::AUDIO_EXTS) { exts += L"*"; exts += e; exts += L";"; }
     exts += L"*.mp3";
     filter += exts + L"\0All Files\0*.*\0\0";
 
@@ -643,12 +656,12 @@ unsigned __stdcall App::ConvertThreadProc(void* param) {
         auto progressCb = [&app, i, total](float p, const std::wstring& status) {
             float overall = (i + p) / total;
             WPARAM wp = *reinterpret_cast<WPARAM*>(&overall);
-            PostMessageW(app.GetHwnd(), ::App::WM_APP_PROGRESS, wp, 0);
+            PostMessageW(app.GetHwnd(), AppDef::WM_APP_PROGRESS, wp, 0);
         };
 
         std::wstring outputDir = Helpers::GetDirectory(path);
         AudioFormat fmt = static_cast<AudioFormat>(cfg.formatIndex);
-        std::string bitrate = ::App::BITRATE_OPTIONS[cfg.bitrateIndex];
+        std::string bitrate = AppDef::BITRATE_OPTIONS[cfg.bitrateIndex];
 
         ConvertResult result = Converter::Convert(
             path, outputDir, fmt, bitrate, progressCb, app.cancelEvent_);
@@ -674,7 +687,7 @@ unsigned __stdcall App::ConvertThreadProc(void* param) {
     delete paths;
 
     // Notify UI thread
-    PostMessageW(app.GetHwnd(), ::App::WM_APP_DONE, success, total);
+    PostMessageW(app.GetHwnd(), AppDef::WM_APP_DONE, success, total);
     return 0;
 }
 
@@ -693,6 +706,6 @@ void App::RefreshHistory() {
 
 void App::ShowToast(Toast::Type type, const std::wstring& msg) {
     toast_.Show(type, msg);
-    SetTimer(hwnd_, ::App::TIMER_TOAST, 16, nullptr); // ~60 FPS updates
+    SetTimer(hwnd_, AppDef::TIMER_TOAST, 16, nullptr); // ~60 FPS updates
     InvalidateRect(hwnd_, nullptr, FALSE);
 }

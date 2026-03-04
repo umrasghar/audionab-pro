@@ -7,7 +7,7 @@
 namespace Config {
 
 std::wstring GetConfigPath() {
-    return Helpers::GetAppDataDir() + L"\\" + App::CONFIG_NAME;
+    return Helpers::GetAppDataDir() + L"\\" + AppDef::CONFIG_NAME;
 }
 
 bool Load(AppConfig& cfg) {

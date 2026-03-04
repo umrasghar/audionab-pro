@@ -3,7 +3,7 @@
 #include <d2d1.h>
 #include <cstdint>
 
-namespace App {
+namespace AppDef {
     inline constexpr wchar_t NAME[]       = L"AudioNab Pro";
     inline constexpr wchar_t VERSION[]    = L"2.5.0";
     inline constexpr wchar_t TAGLINE[]    = L"Nab the audio from any video.";

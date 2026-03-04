@@ -4,7 +4,7 @@
 
 struct AppConfig {
     // Output settings
-    int bitrateIndex      = 4;     // Index into App::BITRATE_OPTIONS (192k)
+    int bitrateIndex      = 4;     // Index into AppDef::BITRATE_OPTIONS (192k)
     int formatIndex       = 0;     // 0=MP3, 1=FLAC, 2=WAV, 3=AAC, 4=Opus
 
     // Watch folder

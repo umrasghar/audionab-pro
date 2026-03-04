@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <shellapi.h>
 #include <string>
 #include <vector>
 #include "config.h"
