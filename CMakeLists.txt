@@ -31,6 +31,7 @@ set(APP_SOURCES
 set(UI_SOURCES
     src/ui/renderer.cpp
     src/ui/controls.cpp
+    src/ui/dropdown.cpp
 )
 
 # NOTE: Do NOT add third_party/sqlite3/shell.c — it contains its own main()

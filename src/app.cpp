@@ -61,7 +61,7 @@ bool App::Init(HINSTANCE hInst, int nCmdShow) {
 
 void App::InitializeControls() {
     // "Nab Audio" primary button
-    btnNab_.text = L"\xD83C\xDFB5  Nab Audio";  // Musical note emoji
+    btnNab_.text = L"Nab Audio";
     btnNab_.bgColor    = Theme::Accent;
     btnNab_.hoverColor = Theme::AccentHover;
     btnNab_.pressColor = Theme::AccentPress;
@@ -69,21 +69,48 @@ void App::InitializeControls() {
     btnNab_.cornerRadius = Theme::CornerRadius;
     btnNab_.isPrimary = true;
 
-    // Settings button
-    btnSettings_.text = L"\x2699  Settings";  // Gear
-    btnSettings_.bgColor    = Theme::BgButton;
-    btnSettings_.hoverColor = Theme::BgBtnHover;
-    btnSettings_.pressColor = Theme::BgCardAlt;
-    btnSettings_.textColor  = Theme::TextPrimary;
-    btnSettings_.cornerRadius = Theme::CornerSmall;
+    // Cancel button (only visible during conversion)
+    btnCancel_.text = L"Cancel";
+    btnCancel_.bgColor    = Theme::Error;
+    btnCancel_.hoverColor = { 0.97f, 0.33f, 0.33f, 1 };
+    btnCancel_.pressColor = { 0.85f, 0.25f, 0.25f, 1 };
+    btnCancel_.textColor  = { 1, 1, 1, 1 };
+    btnCancel_.cornerRadius = Theme::CornerSmall;
+    btnCancel_.visible = false;
 
     // Open folder button
-    btnOpenFolder_.text = L"\xD83D\xDCC2  Open Folder";
+    btnOpenFolder_.text = L"Open Output";
     btnOpenFolder_.bgColor    = Theme::BgButton;
     btnOpenFolder_.hoverColor = Theme::BgBtnHover;
     btnOpenFolder_.pressColor = Theme::BgCardAlt;
     btnOpenFolder_.textColor  = Theme::TextPrimary;
     btnOpenFolder_.cornerRadius = Theme::CornerSmall;
+
+    // Format dropdown
+    ddFormat_.items = { L"MP3", L"FLAC", L"WAV", L"AAC", L"Opus" };
+    ddFormat_.selectedIndex = config_.formatIndex;
+    ddFormat_.bgColor     = Theme::BgInput;
+    ddFormat_.hoverColor  = Theme::BgBtnHover;
+    ddFormat_.textColor   = Theme::TextPrimary;
+    ddFormat_.borderColor = Theme::Border;
+    ddFormat_.dropBg      = Theme::BgCard;
+    ddFormat_.onChanged = [this](int idx) {
+        config_.formatIndex = idx;
+        Config::Save(config_);
+    };
+
+    // Bitrate dropdown
+    ddBitrate_.items = { L"64k", L"96k", L"128k", L"160k", L"192k", L"256k", L"320k" };
+    ddBitrate_.selectedIndex = config_.bitrateIndex;
+    ddBitrate_.bgColor     = Theme::BgInput;
+    ddBitrate_.hoverColor  = Theme::BgBtnHover;
+    ddBitrate_.textColor   = Theme::TextPrimary;
+    ddBitrate_.borderColor = Theme::Border;
+    ddBitrate_.dropBg      = Theme::BgCard;
+    ddBitrate_.onChanged = [this](int idx) {
+        config_.bitrateIndex = idx;
+        Config::Save(config_);
+    };
 
     // Stat cards
     cardTotal_.accentColor = Theme::Accent;
@@ -274,8 +301,19 @@ LRESULT App::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case AppDef::WM_APP_DONE: {
         converting_ = false;
         progressBar_.visible = false;
+        btnCancel_.visible = false;
         convertThread_ = nullptr;
         RefreshHistory();
+        // Show result toast
+        int ok = static_cast<int>(wParam);
+        int total = static_cast<int>(lParam);
+        if (ok == total && total > 0) {
+            ShowToast(Toast::Type::Success, std::to_wstring(ok) + L" file(s) converted successfully!");
+        } else if (ok > 0) {
+            ShowToast(Toast::Type::Warning, std::to_wstring(ok) + L"/" + std::to_wstring(total) + L" files converted.");
+        } else if (total > 0) {
+            ShowToast(Toast::Type::Error, L"Conversion failed.");
+        }
         InvalidateRect(hwnd_, nullptr, FALSE);
         return 0;
     }
@@ -353,9 +391,12 @@ void App::OnPaint() {
                                     w - px, statusDot_.bounds.bottom + 2 };
     renderer_.DrawText(statusText, statusTextRect, Theme::TextMuted, renderer_.fontSmall);
 
-    // Buttons
+    // Buttons and controls
     btnNab_.Draw(renderer_);
-    btnSettings_.Draw(renderer_);
+    ddFormat_.Draw(renderer_);
+    ddBitrate_.Draw(renderer_);
+    btnOpenFolder_.Draw(renderer_);
+    btnCancel_.Draw(renderer_);
 
     // Stat cards
     cardTotal_.Draw(renderer_);
@@ -427,6 +468,23 @@ void App::OnPaint() {
 
     renderer_.PopClip();
 
+    // Dropdown popups (drawn on top of everything else)
+    ddFormat_.DrawDropdown(renderer_);
+    ddBitrate_.DrawDropdown(renderer_);
+
+    // Drag-drop overlay
+    if (dragOver_) {
+        D2D1_RECT_F fullRect = { 0, 0, w, h };
+        renderer_.FillRect(fullRect, Theme::DragOverlay);
+        // Dashed border effect
+        D2D1_RECT_F borderRect = { 12, 12, w - 12, h - 12 };
+        renderer_.DrawRoundedRect(borderRect, Theme::CornerRadius, Theme::DragBorder, 2.0f);
+        // Center text
+        D2D1_RECT_F dropText = { 0, h / 2 - 20, w, h / 2 + 20 };
+        renderer_.DrawText(L"Drop files to convert", dropText, Theme::Accent, renderer_.fontHeader,
+                           DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
     // Toast (drawn last, on top)
     toast_.Draw(renderer_);
 
@@ -447,16 +505,25 @@ void App::OnResize(UINT width, UINT height) {
 void App::Layout(float w, float h) {
     float px = Theme::PaddingX;
     float py = Theme::PaddingY;
-    float s = renderer_.DpiScale();
 
     // Header region
     float headerBottom = py + 60;
 
-    // Buttons row
+    // Controls row: [Nab Audio] [Format v] [Bitrate v] [Open Output]  ... [Cancel]
     float btnY = headerBottom + 8;
-    float btnW = 160;
-    btnNab_.SetBounds(px, btnY, btnW, Theme::ButtonHeight);
-    btnSettings_.SetBounds(px + btnW + 10, btnY, 120, Theme::ButtonHeight - 6);
+    float nabW = 130;
+    btnNab_.SetBounds(px, btnY, nabW, Theme::ButtonHeight);
+
+    float ddX = px + nabW + 12;
+    float ddW = 90;
+    ddFormat_.SetBounds(ddX, btnY + 4, ddW, Theme::ButtonHeight - 8);
+    ddBitrate_.SetBounds(ddX + ddW + 8, btnY + 4, ddW, Theme::ButtonHeight - 8);
+
+    float oX = ddX + 2 * (ddW + 8);
+    btnOpenFolder_.SetBounds(oX, btnY + 4, 110, Theme::ButtonHeight - 8);
+
+    // Cancel button (right side, only during conversion)
+    btnCancel_.SetBounds(w - px - 90, btnY + 4, 80, Theme::ButtonHeight - 8);
 
     // Status dot (right side of header)
     statusDot_.SetBounds(w - px - 120, py + 12, 10, 10);
@@ -484,18 +551,35 @@ void App::OnMouseMove(float x, float y) {
     bool needRepaint = false;
     auto updateState = [&](Control& ctrl) {
         ControlState newState = ctrl.HitTest(x, y) ? ControlState::Hovered : ControlState::Normal;
-        if (ctrl.state == ControlState::Pressed) return; // Don't change while pressed
+        if (ctrl.state == ControlState::Pressed) return;
         if (ctrl.state != newState) { ctrl.state = newState; needRepaint = true; }
     };
 
     updateState(btnNab_);
-    updateState(btnSettings_);
+    updateState(btnCancel_);
     updateState(btnOpenFolder_);
+    updateState(ddFormat_);
+    updateState(ddBitrate_);
+
+    // Dropdown hover tracking
+    ddFormat_.OnMouseMove(x, y);
+    ddBitrate_.OnMouseMove(x, y);
+    if (ddFormat_.isOpen || ddBitrate_.isOpen) needRepaint = true;
 
     if (needRepaint) InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void App::OnMouseDown(float x, float y) {
+    // Dropdowns get first priority
+    bool consumed = false;
+    consumed |= ddFormat_.OnClick(x, y);
+    consumed |= ddBitrate_.OnClick(x, y);
+    if (consumed) { InvalidateRect(hwnd_, nullptr, FALSE); return; }
+
+    // Close any open dropdown when clicking elsewhere
+    if (ddFormat_.isOpen)  { ddFormat_.Close();  InvalidateRect(hwnd_, nullptr, FALSE); }
+    if (ddBitrate_.isOpen) { ddBitrate_.Close(); InvalidateRect(hwnd_, nullptr, FALSE); }
+
     auto press = [&](Button& btn) {
         if (btn.HitTest(x, y)) { btn.state = ControlState::Pressed; return true; }
         return false;
@@ -503,7 +587,7 @@ void App::OnMouseDown(float x, float y) {
 
     bool needRepaint = false;
     needRepaint |= press(btnNab_);
-    needRepaint |= press(btnSettings_);
+    needRepaint |= press(btnCancel_);
     needRepaint |= press(btnOpenFolder_);
 
     if (needRepaint) InvalidateRect(hwnd_, nullptr, FALSE);
@@ -514,16 +598,20 @@ void App::OnMouseUp(float x, float y) {
     if (btnNab_.state == ControlState::Pressed && btnNab_.HitTest(x, y)) {
         OpenFileDialog();
     }
-    if (btnSettings_.state == ControlState::Pressed && btnSettings_.HitTest(x, y)) {
-        // TODO: Open settings window
+    if (btnCancel_.state == ControlState::Pressed && btnCancel_.HitTest(x, y)) {
+        CancelConversion();
     }
     if (btnOpenFolder_.state == ControlState::Pressed && btnOpenFolder_.HitTest(x, y)) {
-        // TODO: Open output folder
+        // Open last output directory
+        if (!history_.empty() && !history_[0].outputPath.empty()) {
+            std::wstring dir = Helpers::GetDirectory(history_[0].outputPath);
+            ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
     }
 
     // Reset all states
     btnNab_.state = btnNab_.HitTest(x, y) ? ControlState::Hovered : ControlState::Normal;
-    btnSettings_.state = btnSettings_.HitTest(x, y) ? ControlState::Hovered : ControlState::Normal;
+    btnCancel_.state = btnCancel_.HitTest(x, y) ? ControlState::Hovered : ControlState::Normal;
     btnOpenFolder_.state = btnOpenFolder_.HitTest(x, y) ? ControlState::Hovered : ControlState::Normal;
 
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -617,6 +705,7 @@ void App::ConvertFiles(const std::vector<std::wstring>& paths) {
     convertStatus_ = L"Starting...";
     progressBar_.visible = true;
     progressBar_.progress = 0.0f;
+    btnCancel_.visible = true;
     ResetEvent(cancelEvent_);
 
     // Copy paths for thread

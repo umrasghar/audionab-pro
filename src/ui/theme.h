@@ -46,6 +46,13 @@ namespace Theme {
     inline constexpr auto ToastInfoBg      = Hex(0x1e3a5f);
     inline constexpr auto ToastInfoText    = Hex(0xbfdbfe);
 
+    // Border
+    inline constexpr auto Border      = Hex(0x3a3a50);
+
+    // Drag overlay
+    inline constexpr auto DragOverlay = Hex(0x7aa2f7, 0.12f);
+    inline constexpr auto DragBorder  = Hex(0x7aa2f7, 0.6f);
+
     // FFmpeg warning banner
     inline constexpr auto BannerBg   = Hex(0x7f1d1d);
     inline constexpr auto BannerText = Hex(0xfca5a5);

@@ -8,6 +8,7 @@
 #include "converter.h"
 #include "ui/renderer.h"
 #include "ui/controls.h"
+#include "ui/dropdown.h"
 
 class App {
 public:
@@ -73,14 +74,19 @@ private:
 
     // UI controls
     Button      btnNab_;
-    Button      btnSettings_;
+    Button      btnCancel_;
     Button      btnOpenFolder_;
+    Dropdown    ddFormat_;
+    Dropdown    ddBitrate_;
     StatCard    cardTotal_;
     StatCard    cardSuccess_;
     StatCard    cardFailed_;
     ProgressBar progressBar_;
     Toast       toast_;
     StatusDot   statusDot_;
+
+    // Drag-drop overlay
+    bool        dragOver_ = false;
 
     // Layout regions
     D2D1_RECT_F headerRect_  = {};
